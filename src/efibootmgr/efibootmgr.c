@@ -33,6 +33,7 @@
 #define _GNU_SOURCE
 
 #include <ctype.h>
+#include <err.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -123,7 +124,7 @@ read_vars(char **namelist,
 	}
 	return;
 err:
-	fprintf(stderr, "efibootmgr: %m\n");
+	warn("efibootmgr");
 	exit(1);
 }
 
@@ -242,16 +243,20 @@ make_boot_var(list_t *boot_list)
 		free_number = opts.bootnum;
 	}
 
-	if (free_number == -1)
+	if (free_number == -1) {
+		warn("efibootmgr: no available boot variables");
 		return NULL;
+	}
 
 	/* Create a new efi_variable_t object
 	   and populate it.
 	*/
 
 	boot = calloc(1, sizeof(*boot));
-	if (!boot)
+	if (!boot) {
+		warn("efibootmgr");
 		return NULL;
+	}
 	if (make_linux_load_option(&boot->data, &boot->data_size) < 0)
 		goto err_boot_entry;
 	if (append_extra_args(&boot->data, &boot->data_size) < 0)
@@ -260,8 +265,10 @@ make_boot_var(list_t *boot_list)
 	boot->num = free_number;
 	boot->guid = EFI_GLOBAL_VARIABLE;
 	rc = asprintf(&boot->name, "Boot%04X", free_number);
-	if (rc < 0)
+	if (rc < 0) {
+		warn("efibootmgr");
 		goto err_boot_entry;
+	}
 	boot->attributes = EFI_VARIABLE_NON_VOLATILE |
 			    EFI_VARIABLE_BOOTSERVICE_ACCESS |
 			    EFI_VARIABLE_RUNTIME_ACCESS;
@@ -272,8 +279,12 @@ make_boot_var(list_t *boot_list)
 	list_add_tail(&boot->list, boot_list);
 	return boot;
 err_boot_entry:
-	if (boot->name)
+	if (boot->name) {
+		warn("Could not set variable %s", boot->name);
 		free(boot->name);
+	} else {
+		warn("Could not set variable");
+	}
 	if (boot->data)
 		free(boot->data);
 	free(boot);
@@ -313,6 +324,15 @@ read_boot_order(efi_variable_t **boot_order)
 }
 
 static int
+set_boot_u16(const char *name, uint16_t num)
+{
+	return efi_set_variable(EFI_GLOBAL_GUID, name, (uint8_t *)&num,
+				sizeof (num), EFI_VARIABLE_NON_VOLATILE |
+					      EFI_VARIABLE_BOOTSERVICE_ACCESS |
+					      EFI_VARIABLE_RUNTIME_ACCESS);
+}
+
+static int
 add_to_boot_order(uint16_t num)
 {
 	efi_variable_t *boot_order = NULL;
@@ -321,8 +341,11 @@ add_to_boot_order(uint16_t num)
 	int rc;
 
 	rc = read_boot_order(&boot_order);
-	if (rc < 0)
+	if (rc < 0) {
+		if (errno == ENOENT)
+			rc = set_boot_u16("BootOrder", num);
 		return rc;
+	}
 
 	/* We've now got an array (in boot_order->data) of the
 	 * boot order.  First add our entry, then copy the old array.
@@ -358,8 +381,11 @@ remove_dupes_from_boot_order(void)
 	int rc;
 
 	rc = read_boot_order(&boot_order);
-	if (rc < 0)
+	if (rc < 0) {
+		if (errno == ENOENT)
+			rc = 0;
 		return rc;
+	}
 
 	old_data = (uint16_t *)(boot_order->data);
 	/* Start with the same size */
@@ -409,8 +435,11 @@ remove_from_boot_order(uint16_t num)
 	int rc;
 
 	rc = read_boot_order(&boot_order);
-	if (rc < 0)
+	if (rc < 0) {
+		if (errno == ENOENT)
+			rc = 0;
 		return rc;
+	}
 
 	/* We've now got an array (in boot_order->data) of the
 	   boot order.  Simply copy the array, skipping the
@@ -470,15 +499,6 @@ read_boot_u16(const char *name)
 }
 
 static int
-set_boot_u16(const char *name, uint16_t num)
-{
-	return efi_set_variable(EFI_GLOBAL_GUID, name, (uint8_t *)&num,
-				sizeof (num), EFI_VARIABLE_NON_VOLATILE |
-					      EFI_VARIABLE_BOOTSERVICE_ACCESS |
-					      EFI_VARIABLE_RUNTIME_ACCESS);
-}
-
-static int
 delete_boot_var(uint16_t num)
 {
 	int rc;
@@ -490,13 +510,18 @@ delete_boot_var(uint16_t num)
 	rc = efi_del_variable(EFI_GLOBAL_GUID, name);
 
 	/* For backwards compatibility, try to delete abcdef entries as well */
-	if (rc < 0 && errno == ENOENT) {
-		snprintf(name, sizeof(name), "Boot%04x", num);
-		rc = efi_del_variable(EFI_GLOBAL_GUID, name);
+	if (rc < 0) {
+		if (errno == ENOENT) {
+			snprintf(name, sizeof(name), "Boot%04x", num);
+			rc = efi_del_variable(EFI_GLOBAL_GUID, name);
+		} else if (errno == EPERM) {
+			warn("Could not delete Boot%04X", num);
+			return rc;
+		}
 	}
 
 	if (rc < 0) {
-		fprintf(stderr,"\nboot entry: %X not found\n\n",num);
+		warnx("Boot entry %04X not found", num);
 		return rc;
 	}
 	list_for_each_safe(pos, n, &boot_entry_list) {
@@ -511,7 +536,6 @@ delete_boot_var(uint16_t num)
 	}
 	return 0;
 }
-
 
 static void
 set_var_nums(list_t *list)
@@ -1177,34 +1201,28 @@ main(int argc, char **argv)
 	if (opts.iface && (
 			opts.acpi_hid < 0 || opts.acpi_uid < 0 ||
 			opts.acpi_hid > UINT32_MAX ||
-			opts.acpi_uid > UINT32_MAX)) {
-		fprintf(stderr, "\nYou must specify the ACPI HID and UID when using -i.\n\n");
-		return 1;
-	}
+			opts.acpi_uid > UINT32_MAX))
+		errx(1, "You must specify the ACPI HID and UID when using -i.");
 
-	if (!efi_variables_supported()) {
-		fprintf(stderr, "\nEFI variables are not supported on this system.\n\n");
-		return 1;
-	}
+	if (!efi_variables_supported())
+		errx(2, "EFI variables are not supported on this system.");
 
 	read_boot_var_names(&boot_names);
 	read_vars(boot_names, &boot_entry_list);
 	set_var_nums(&boot_entry_list);
 
 	if (opts.delete_boot) {
-		if (opts.bootnum == -1) {
-			fprintf(stderr, "\nYou must specify a boot entry to delete (see the -b option).\n\n");
-			return 1;
-		}
+		if (opts.bootnum == -1)
+			errx(3, "You must specify a boot entry to delete "
+				"(see the -b option).");
 		else
 			ret = delete_boot_var(opts.bootnum);
 	}
 
 	if (opts.active >= 0) {
-		if (opts.bootnum == -1) {
-			fprintf(stderr, "\nYou must specify a boot entry to activate (see the -b option).\n\n");
-			return 1;
-		}
+		if (opts.bootnum == -1)
+			errx(4, "You must specify a boot entry to activate "
+				"(see the -b option");
 		else
 			ret=set_active_state();
 	}
@@ -1212,47 +1230,57 @@ main(int argc, char **argv)
 	if (opts.create) {
 		warn_duplicate_name(&boot_entry_list);
 		new_boot = make_boot_var(&boot_entry_list);
-		if (!new_boot) {
-			fprintf(stderr, "\nCould not prepare boot variable: %m\n\n");
-			return 1;
-		}
+		if (!new_boot)
+			err(5, "Could not prepare boot variable");
 
 		/* Put this boot var in the right BootOrder */
 		if (new_boot)
 			ret=add_to_boot_order(new_boot->num);
+		if (ret)
+			err(6, "Could not add entry to BootOrder");
 	}
 
 	if (opts.delete_bootorder) {
 		ret = efi_del_variable(EFI_GLOBAL_GUID, "BootOrder");
+		err(7, "Could not remove entry from BootOrder");
 	}
 
 	if (opts.bootorder) {
 		ret = set_boot_order(opts.keep_old_entries);
+		if (ret)
+			err(8, "Could not set BootOrder");
 	}
 
 	if (opts.deduplicate) {
 		ret = remove_dupes_from_boot_order();
+		if (ret)
+			err(9, "Could not set BootOrder");
 	}
 
 	if (opts.delete_bootnext) {
 		ret = efi_del_variable(EFI_GLOBAL_GUID, "BootNext");
+		if (ret)
+			err(10, "Could not set BootNext");
 	}
 
 	if (opts.delete_timeout) {
 		ret = efi_del_variable(EFI_GLOBAL_GUID, "Timeout");
+		if (ret)
+			err(11, "Could not delete Timeout");
 	}
 
 	if (opts.bootnext >= 0) {
-		if (!is_current_boot_entry(opts.bootnext & 0xFFFF)){
-			fprintf (stderr,"\n\nboot entry %X does not exist\n\n",
-				opts.bootnext);
-			return 1;
-		}
-		ret=set_boot_u16("BootNext", opts.bootnext & 0xFFFF);
+		if (!is_current_boot_entry(opts.bootnext & 0xFFFF))
+			errx(12, "Boot entry %X does not exist", opts.bootnext);
+		ret = set_boot_u16("BootNext", opts.bootnext & 0xFFFF);
+		if (ret)
+			err(13, "Could not set BootNext");
 	}
 
 	if (opts.set_timeout) {
-		ret=set_boot_u16("Timeout", opts.timeout);
+		ret = set_boot_u16("Timeout", opts.timeout);
+		if (ret)
+			err(14, "Could not set Timeout");
 	}
 
 	if (!opts.quiet && ret == 0) {
