@@ -1089,7 +1089,7 @@ parse_opts(int argc, char **argv)
 				exit(1);
 			}
 
-			opts.bootnum = num;
+			opts.bootnum = result;
 			break;
 		}
 		case 'c':
@@ -1143,7 +1143,7 @@ parse_opts(int argc, char **argv)
 				exit(1);
 			}
 
-			opts.acpi_hid = num;
+			opts.acpi_hid = result;
 			break;
 		}
 		case 'i':
@@ -1232,7 +1232,7 @@ parse_opts(int argc, char **argv)
 				exit(1);
 			}
 
-			opts.acpi_uid = num;
+			opts.acpi_uid = result;
 			break;
 		}
 		case 'v':
