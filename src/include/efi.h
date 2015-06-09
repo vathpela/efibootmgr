@@ -309,6 +309,9 @@ typedef struct {
 /* Used for ACPI _HID */
 #define EISAID_PNP0A03 0xa0341d0
 
+#define ADDRESS_RANGE_MIRROR_VARIABLE_GUID \
+EFI_GUID( 0x7b9be2e0, 0xe28a, 0x4197, 0xad3e, 0x32, 0xf0, 0x62, 0xf9, 0x46, 0x2c)
+
 /* Exported functions */
 
 extern EFI_DEVICE_PATH *load_option_path(EFI_LOAD_OPTION *option);
@@ -317,5 +320,17 @@ extern int read_boot_var_names(char ***namelist);
 extern ssize_t make_linux_load_option(uint8_t **data, size_t *data_size);
 extern int append_extra_args(uint8_t **data, size_t *data_size);
 
+
+typedef struct {
+	uint8_t		mirror_version;
+	uint8_t		mirror_memory_below_4gb;
+	uint16_t	mirror_amount_above_4gb;
+	uint8_t		mirror_status;
+} __attribute__((packed)) ADDRESS_RANGE_MIRROR_VARIABLE_DATA;
+
+#define        MIRROR_VERSION  1
+
+#define ADDRESS_RANGE_MIRROR_VARIABLE_CURRENT "MirrorCurrent"
+#define ADDRESS_RANGE_MIRROR_VARIABLE_REQUEST "MirrorRequest"
 
 #endif /* EFI_H */
