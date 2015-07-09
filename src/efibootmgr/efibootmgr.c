@@ -1177,12 +1177,6 @@ parse_opts(int argc, char **argv)
 					result);
 				exit(1);
 			}
-			if (!is_current_boot_entry(result)) {
-				fprintf(stderr,
-					"Boot entry %04lX does not exist\n",
-					result);
-				exit(1);
-			}
 			opts.bootnext = result;
 			break;
 		}
