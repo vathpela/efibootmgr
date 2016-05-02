@@ -68,7 +68,7 @@ typedef struct _var_entry {
 } var_entry_t;
 
 /* global variables */
-static	LIST_HEAD(boot_entry_list);
+static	LIST_HEAD(entry_list);
 static	LIST_HEAD(blk_list);
 efibootmgr_opt_t opts;
 
@@ -76,14 +76,14 @@ static void
 free_vars(list_t *head)
 {
 	list_t *pos, *n;
-	var_entry_t *boot;
+	var_entry_t *entry;
 
 	list_for_each_safe(pos, n, head) {
-		boot = list_entry(pos, var_entry_t, list);
-		if (boot->data)
-			free(boot->data);
-		list_del(&(boot->list));
-		free(boot);
+		entry = list_entry(pos, var_entry_t, list);
+		if (entry->data)
+			free(entry->data);
+		list_del(&(entry->list));
+		free(entry);
 	}
 }
 
@@ -160,18 +160,18 @@ compare(const void *a, const void *b)
 
 
 /*
-  Return an available boot variable number,
+  Return an available variable number,
   or -1 on failure.
 */
 static int
-find_free_boot_var(list_t *boot_list)
+find_free_var(list_t *var_list)
 {
 	int num_vars=0, i=0, found;
 	uint16_t *vars, free_number;
 	list_t *pos;
-	var_entry_t *boot;
+	var_entry_t *entry;
 
-	list_for_each(pos, boot_list)
+	list_for_each(pos, var_list)
 		num_vars++;
 
 	if (num_vars == 0)
@@ -181,9 +181,9 @@ find_free_boot_var(list_t *boot_list)
 	if (!vars)
 		return -1;
 
-	list_for_each(pos, boot_list) {
-		boot = list_entry(pos, var_entry_t, list);
-		vars[i] = boot->num;
+	list_for_each(pos, var_list) {
+		entry = list_entry(pos, var_entry_t, list);
+		vars[i] = entry->num;
 		i++;
 	}
 	qsort(vars, i, sizeof(uint16_t), compare);
@@ -192,9 +192,9 @@ find_free_boot_var(list_t *boot_list)
 	num_vars = i;
 	for (free_number = 0; free_number < num_vars && found; free_number++) {
 		found = 0;
-		list_for_each(pos, boot_list) {
-			boot = list_entry(pos, var_entry_t, list);
-			if (boot->num == free_number) {
+		list_for_each(pos, var_list) {
+			entry = list_entry(pos, var_entry_t, list);
+			if (entry->num == free_number) {
 				found = 1;
 				break;
 			}
@@ -209,29 +209,27 @@ find_free_boot_var(list_t *boot_list)
 
 
 static void
-warn_duplicate_name(list_t *boot_list)
+warn_duplicate_name(list_t *var_list)
 {
 	list_t *pos;
-	var_entry_t *boot;
+	var_entry_t *entry;
 	efi_load_option *load_option;
 	const unsigned char const *desc;
 
-	list_for_each(pos, boot_list) {
-		boot = list_entry(pos, var_entry_t, list);
-		load_option = (efi_load_option *)boot->data;
-		desc = efi_loadopt_desc(load_option, boot->data_size);
-		if (!strcmp((char *)opts.label, (char *)desc)) {
-			fprintf(stderr,
-				"** Warning ** : %.8s has same label %s\n",
-				boot->name, opts.label);
-		}
+	list_for_each(pos, var_list) {
+		entry = list_entry(pos, var_entry_t, list);
+		load_option = (efi_load_option *)entry->data;
+		desc = efi_loadopt_desc(load_option, entry->data_size);
+		if (!strcmp((char *)opts.label, (char *)desc))
+			warnx("** Warning ** : %s has same label %s",
+			      entry->name, opts.label);
 	}
 }
 
 static var_entry_t *
-make_boot_var(list_t *boot_list)
+make_var(const char *prefix, list_t *var_list)
 {
-	var_entry_t *boot = NULL;
+	var_entry_t *entry = NULL;
 	int free_number;
 	list_t *pos;
 	int rc;
@@ -239,30 +237,29 @@ make_boot_var(list_t *boot_list)
 	ssize_t extra_args_size = 0;
 	ssize_t needed=0, sz;
 
-	if (opts.bootnum == -1) {
-		free_number = find_free_boot_var(boot_list);
+	if (opts.num == -1) {
+		free_number = find_free_var(var_list);
 	} else {
-		list_for_each(pos, boot_list) {
-			boot = list_entry(pos, var_entry_t, list);
-			if (boot->num == opts.bootnum) {
-				fprintf(stderr, "** Warning ** : bootnum %04X "
-				        "already exists\n", opts.bootnum);
-				return NULL;
-			}
+		list_for_each(pos, var_list) {
+			entry = list_entry(pos, var_entry_t, list);
+			if (entry->num == opts.num)
+				errx(40,
+				     "Cannot create %s%04X: already exists.",
+				     prefix, opts.num);
 		}
-		free_number = opts.bootnum;
+		free_number = opts.num;
 	}
 
 	if (free_number == -1) {
-		warn("efibootmgr: no available boot variables");
+		warn("efibootmgr: no available %s variables", prefix);
 		return NULL;
 	}
 
 	/* Create a new var_entry_t object
 	   and populate it.
 	*/
-	boot = calloc(1, sizeof(*boot));
-	if (!boot) {
+	entry = calloc(1, sizeof(*entry));
+	if (!entry) {
 		warn("efibootmgr");
 		return NULL;
 	}
@@ -272,77 +269,77 @@ make_boot_var(list_t *boot_list)
 		goto err;
 	extra_args_size = sz;
 
-	boot->data = NULL;
-	boot->data_size = 0;
-	needed = make_linux_load_option(&boot->data, &boot->data_size,
+	entry->data = NULL;
+	entry->data_size = 0;
+	needed = make_linux_load_option(&entry->data, &entry->data_size,
 					NULL, sz);
 	if (needed < 0)
 		goto err;
-	boot->data_size = needed;
-	boot->data = malloc(needed);
-	if (!boot->data)
+	entry->data_size = needed;
+	entry->data = malloc(needed);
+	if (!entry->data)
 		goto err;
 
-	extra_args = boot->data + needed - extra_args_size;
+	extra_args = entry->data + needed - extra_args_size;
 	sz = get_extra_args(extra_args, extra_args_size);
 	if (sz < 0)
 		goto err;
-	sz = make_linux_load_option(&boot->data, &boot->data_size,
+	sz = make_linux_load_option(&entry->data, &entry->data_size,
 				    extra_args, extra_args_size);
 	if (sz < 0)
 		goto err;
 
-	boot->num = free_number;
-	boot->guid = EFI_GLOBAL_GUID;
-	rc = asprintf(&boot->name, "Boot%04X", free_number);
+	entry->num = free_number;
+	entry->guid = EFI_GLOBAL_GUID;
+	rc = asprintf(&entry->name, "%s%04X", prefix, free_number);
 	if (rc < 0) {
 		warn("efibootmgr");
 		goto err;
 	}
-	boot->attributes = EFI_VARIABLE_NON_VOLATILE |
+	entry->attributes = EFI_VARIABLE_NON_VOLATILE |
 			    EFI_VARIABLE_BOOTSERVICE_ACCESS |
 			    EFI_VARIABLE_RUNTIME_ACCESS;
-	rc = efi_set_variable(boot->guid, boot->name, boot->data,
-				boot->data_size, boot->attributes, 0644);
+	rc = efi_set_variable(entry->guid, entry->name, entry->data,
+				entry->data_size, entry->attributes, 0644);
 	if (rc < 0)
 		goto err;
-	list_add_tail(&boot->list, boot_list);
-	return boot;
+	list_add_tail(&entry->list, var_list);
+	return entry;
 err:
-	if (boot) {
-		if (boot->data)
-			free(boot->data);
-		if (boot->name) {
-			warn("Could not set variable %s", boot->name);
-			free(boot->name);
+	if (entry) {
+		if (entry->data)
+			free(entry->data);
+		if (entry->name) {
+			warn("Could not set variable %s", entry->name);
+			free(entry->name);
 		} else {
 			warn("Could not set variable");
 		}
-		free(boot);
+		free(entry);
 	}
 	return NULL;
 }
 
 static int
-read_boot_order(var_entry_t **boot_order)
+read_order(const char *name, var_entry_t **order)
 {
 	int rc;
 	var_entry_t *new = NULL, *bo = NULL;
 
-	if (*boot_order == NULL) {
-		new = calloc(1, sizeof (**boot_order));
+	if (*order == NULL) {
+		new = calloc(1, sizeof (**order));
 		if (!new)
 			return -1;
-		*boot_order = bo = new;
+		*order = bo = new;
 	} else {
-		bo = *boot_order;
+		bo = *order;
 	}
 
-	rc = efi_get_variable(EFI_GLOBAL_GUID, "BootOrder",
+	rc = efi_get_variable(EFI_GLOBAL_GUID, name,
 				&bo->data, &bo->data_size, &bo->attributes);
 	if (rc < 0 && new != NULL) {
 		free(new);
-		*boot_order = NULL;
+		*order = NULL;
 		bo = NULL;
 	}
 
@@ -356,7 +353,7 @@ read_boot_order(var_entry_t **boot_order)
 }
 
 static int
-set_boot_u16(const char *name, uint16_t num)
+set_u16(const char *name, uint16_t num)
 {
 	return efi_set_variable(EFI_GLOBAL_GUID, name, (uint8_t *)&num,
 				sizeof (num), EFI_VARIABLE_NON_VOLATILE |
@@ -366,68 +363,68 @@ set_boot_u16(const char *name, uint16_t num)
 }
 
 static int
-add_to_boot_order(uint16_t num)
+add_to_order(const char *name, uint16_t num)
 {
-	var_entry_t *boot_order = NULL;
+	var_entry_t *order = NULL;
 	uint64_t new_data_size;
 	uint16_t *new_data, *old_data;
 	int rc;
 
-	rc = read_boot_order(&boot_order);
+	rc = read_order(name, &order);
 	if (rc < 0) {
 		if (errno == ENOENT)
-			rc = set_boot_u16("BootOrder", num);
+			rc = set_u16(name, num);
 		return rc;
 	}
 
-	/* We've now got an array (in boot_order->data) of the
-	 * boot order.  First add our entry, then copy the old array.
+	/* We've now got an array (in order->data) of the
+	 * order.  First add our entry, then copy the old array.
 	 */
-	old_data = (uint16_t *)boot_order->data;
-	new_data_size = boot_order->data_size + sizeof(uint16_t);
+	old_data = (uint16_t *)order->data;
+	new_data_size = order->data_size + sizeof(uint16_t);
 	new_data = malloc(new_data_size);
 	if (!new_data)
 		return -1;
 
 	new_data[0] = num;
-	memcpy(new_data+1, old_data, boot_order->data_size);
+	memcpy(new_data+1, old_data, order->data_size);
 
 	/* Now new_data has what we need */
-	free(boot_order->data);
-	boot_order->data = (uint8_t *)new_data;
-	boot_order->data_size = new_data_size;
+	free(order->data);
+	order->data = (uint8_t *)new_data;
+	order->data_size = new_data_size;
 
-	rc = efi_set_variable(EFI_GLOBAL_GUID, "BootOrder", boot_order->data,
-			boot_order->data_size, boot_order->attributes, 0644);
-	free(boot_order->data);
-	free(boot_order);
+	rc = efi_set_variable(EFI_GLOBAL_GUID, name, order->data,
+			order->data_size, order->attributes, 0644);
+	free(order->data);
+	free(order);
 	return rc;
 }
 
 static int
-remove_dupes_from_boot_order(void)
+remove_dupes_from_order(char *name)
 {
-	var_entry_t *boot_order = NULL;
+	var_entry_t *order = NULL;
 	uint64_t new_data_size;
 	uint16_t *new_data, *old_data;
 	unsigned int old_i,new_i;
 	int rc;
 
-	rc = read_boot_order(&boot_order);
+	rc = read_order(name, &order);
 	if (rc < 0) {
 		if (errno == ENOENT)
 			rc = 0;
 		return rc;
 	}
 
-	old_data = (uint16_t *)(boot_order->data);
+	old_data = (uint16_t *)(order->data);
 	/* Start with the same size */
-	new_data_size = boot_order->data_size;
+	new_data_size = order->data_size;
 	new_data = malloc(new_data_size);
 	if (!new_data)
 		return -1;
 
-	unsigned int old_max = boot_order->data_size / sizeof(*new_data);
+	unsigned int old_max = order->data_size / sizeof(*new_data);
 	for (old_i = 0, new_i = 0; old_i < old_max; old_i++) {
 		int copies = 0;
 		unsigned int j;
@@ -447,41 +444,41 @@ remove_dupes_from_boot_order(void)
 	new_data_size = sizeof(new_data[0]) * new_i;
 
 	/* Now new_data has what we need */
-	free(boot_order->data);
-	boot_order->data = (uint8_t *)new_data;
-	boot_order->data_size = new_data_size;
-	efi_del_variable(EFI_GLOBAL_GUID, "BootOrder");
-	rc = efi_set_variable(EFI_GLOBAL_GUID, "BootOrder", boot_order->data,
-				boot_order->data_size, boot_order->attributes,
+	free(order->data);
+	order->data = (uint8_t *)new_data;
+	order->data_size = new_data_size;
+	efi_del_variable(EFI_GLOBAL_GUID, name);
+	rc = efi_set_variable(EFI_GLOBAL_GUID, name, order->data,
+				order->data_size, order->attributes,
 				0644);
-	free(boot_order->data);
-	free(boot_order);
+	free(order->data);
+	free(order);
 	return rc;
 }
 
 static int
-remove_from_boot_order(uint16_t num)
+remove_from_order(const char *name, uint16_t num)
 {
-	var_entry_t *boot_order = NULL;
+	var_entry_t *order = NULL;
 	uint16_t *data;
 	unsigned int old_i,new_i;
 	int rc;
 
-	rc = read_boot_order(&boot_order);
+	rc = read_order(name, &order);
 	if (rc < 0) {
 		if (errno == ENOENT)
 			rc = 0;
 		return rc;
 	}
 
-	/* We've now got an array (in boot_order->data) of the
-	   boot order. Squeeze out any instance of the entry we're
+	/* We've now got an array (in order->data) of the
+	   order. Squeeze out any instance of the entry we're
 	   deleting by shifting the remainder down.
 	*/
-	data = (uint16_t *)(boot_order->data);
+	data = (uint16_t *)(order->data);
 
 	for (old_i=0,new_i=0;
-	     old_i < boot_order->data_size / sizeof(data[0]);
+	     old_i < order->data_size / sizeof(data[0]);
 	     old_i++) {
 		if (data[old_i] != num) {
 			if (new_i != old_i)
@@ -490,28 +487,28 @@ remove_from_boot_order(uint16_t num)
 		}
 	}
 
-	/* If nothing removed, no need to update the BootOrder variable */
+	/* If nothing removed, no need to update the order variable */
 	if (new_i == old_i)
 		goto all_done;
 
-	/* BootOrder should have nothing when new_i == 0 */
+	/* *Order should have nothing when new_i == 0 */
 	if (new_i == 0) {
-		efi_del_variable(EFI_GLOBAL_GUID, "BootOrder");
+		efi_del_variable(EFI_GLOBAL_GUID, name);
 		goto all_done;
 	}
 
-	boot_order->data_size = sizeof(data[0]) * new_i;
-	rc = efi_set_variable(EFI_GLOBAL_GUID, "BootOrder", boot_order->data,
-				boot_order->data_size, boot_order->attributes,
+	order->data_size = sizeof(data[0]) * new_i;
+	rc = efi_set_variable(EFI_GLOBAL_GUID, name, order->data,
+				order->data_size, order->attributes,
 				0644);
 all_done:
-	free(boot_order->data);
-	free(boot_order);
+	free(order->data);
+	free(order);
 	return rc;
 }
 
 static int
-read_boot_u16(const char *name)
+read_u16(const char *name)
 {
 	efi_guid_t guid = EFI_GLOBAL_GUID;
 	uint16_t *data = NULL;
@@ -545,36 +542,38 @@ hex_could_be_lower_case(uint16_t num)
 }
 
 static int
-delete_boot_var(uint16_t num)
+delete_var(const char *prefix, uint16_t num)
 {
 	int rc;
 	char name[16];
 	list_t *pos, *n;
-	var_entry_t *boot;
+	var_entry_t *entry;
 
-	snprintf(name, sizeof(name), "Boot%04X", num);
+	snprintf(name, sizeof(name), "%s%04X", prefix, num);
 	rc = efi_del_variable(EFI_GLOBAL_GUID, name);
 	if (rc < 0)
-		warn("Could not delete Boot%04X", num);
+		warn("Could not delete %s%04X", prefix, num);
 
 	/* For backwards compatibility, try to delete abcdef entries as well */
 	if (rc < 0 && errno == ENOENT && hex_could_be_lower_case(num)) {
-		snprintf(name, sizeof(name), "Boot%04x", num);
+		snprintf(name, sizeof(name), "%s%04x", prefix, num);
 		rc = efi_del_variable(EFI_GLOBAL_GUID, name);
 		if (rc < 0 && errno != ENOENT)
-			warn("Could not delete Boot%04x", num);
+			warn("Could not delete %s%04x", prefix, num);
 	}
 
 	if (rc < 0)
 		return rc;
 
-	list_for_each_safe(pos, n, &boot_entry_list) {
-		boot = list_entry(pos, var_entry_t, list);
-		if (boot->num == num) {
-			rc = remove_from_boot_order(num);
+	snprintf(name, sizeof(name), "%sOrder", prefix);
+
+	list_for_each_safe(pos, n, &entry_list) {
+		entry = list_entry(pos, var_entry_t, list);
+		if (entry->num == num) {
+			rc = remove_from_order(name, num);
 			if (rc < 0)
 				return rc;
-			list_del(&(boot->list));
+			list_del(&(entry->list));
 			break; /* short-circuit since it was found */
 		}
 	}
@@ -582,40 +581,47 @@ delete_boot_var(uint16_t num)
 }
 
 static void
-set_var_nums(list_t *list)
+set_var_nums(const char *prefix, list_t *list)
 {
 	list_t *pos;
 	var_entry_t *var;
 	int num=0, rc;
 	char *name;
 	int warn=0;
+	size_t plen = strlen(prefix);
+	char fmt[30];
+
+	fmt[0] = '\0';
+	strcat(fmt, prefix);
+	strcat(fmt, "%04X-%*s");
 
 	list_for_each(pos, list) {
 		var = list_entry(pos, var_entry_t, list);
-		rc = sscanf(var->name, "Boot%04X-%*s", &num);
+		rc = sscanf(var->name, fmt, &num);
 		if (rc == 1) {
+			char *snum;
 			var->num = num;
 			name = var->name; /* shorter name */
-			if ((isalpha(name[4]) && islower(name[4])) ||
-			    (isalpha(name[5]) && islower(name[5])) ||
-			    (isalpha(name[6]) && islower(name[6])) ||
-			    (isalpha(name[7]) && islower(name[7]))) {
-				fprintf(stderr, "** Warning ** : %.8s is not "
-				        "EFI 1.10 compliant (lowercase hex in name)\n", name);
+			snum = name + plen;
+			if ((isalpha(snum[0]) && islower(snum[0])) ||
+			    (isalpha(snum[1]) && islower(snum[1])) ||
+			    (isalpha(snum[2]) && islower(snum[2])) ||
+			    (isalpha(snum[3]) && islower(snum[3]))) {
+				warnx("** Warning ** : %s is not EFI 1.10 compliant (lowercase hex in name)", name);
 				warn++;
 			}
 		}
 	}
 	if (warn) {
-		fprintf(stderr, "** Warning ** : please recreate these using efibootmgr to remove this warning.\n");
+		warnx("** Warning ** : please recreate these using efibootmgr to remove this warning.");
 	}
 }
 
 static void
-print_boot_order(uint16_t *order, int length)
+print_order(const char *name, uint16_t *order, int length)
 {
 	int i;
-	printf("BootOrder: ");
+	printf("%s: ", name);
 	for (i=0; i<length; i++) {
 		printf("%04X", order[i]);
 		if (i < (length-1))
@@ -625,25 +631,32 @@ print_boot_order(uint16_t *order, int length)
 }
 
 static int
-is_current_boot_entry(int b)
+is_current_entry(int b)
 {
 	list_t *pos;
-	var_entry_t *boot;
+	var_entry_t *entry;
 
-	list_for_each(pos, &boot_entry_list) {
-		boot = list_entry(pos, var_entry_t, list);
-		if (boot->num == b)
+	list_for_each(pos, &entry_list) {
+		entry = list_entry(pos, var_entry_t, list);
+		if (entry->num == b)
 			return 1;
 	}
 	return 0;
 }
 
 static void
-print_error_arrow(char *message, char *buffer, off_t offset)
+print_error_arrow(char *buffer, off_t offset, char *fmt, ...)
 {
+	va_list ap;
+	size_t size;
 	unsigned int i;
-	fprintf(stderr, "%s: %s\n", message, buffer);
-	for (i = 0; i < strlen(message) + 2; i++)
+
+	va_start(ap, fmt);
+	size = vfprintf(stderr, fmt, ap);
+	va_end(ap);
+	fprintf(stderr, "%s\n", buffer);
+
+	for (i = 0; i < size + 2; i++)
 		fprintf(stderr, " ");
 	for (i = 0; i < offset; i++)
 		fprintf(stderr, " ");
@@ -651,7 +664,7 @@ print_error_arrow(char *message, char *buffer, off_t offset)
 }
 
 static int
-parse_boot_order(char *buffer, uint16_t **order, size_t *length)
+parse_order(const char *prefix, char *buffer, uint16_t **order, size_t *length)
 {
 	uint16_t *data;
 	size_t data_size;
@@ -664,7 +677,8 @@ parse_boot_order(char *buffer, uint16_t **order, size_t *length)
 		size_t comma = strcspn(buf, ",");
 		if (comma == 0) {
 			off_t offset = (intptr_t)buf - (intptr_t)buffer;
-			print_error_arrow("Malformed boot order",buffer,offset);
+			print_error_arrow(buffer, offset, "Malformed %s order",
+					  prefix);
 			exit(8);
 		} else {
 			num++;
@@ -688,27 +702,29 @@ parse_boot_order(char *buffer, uint16_t **order, size_t *length)
 		result = strtoul(buf, &endptr, 16);
 		if ((result == ULONG_MAX && errno == ERANGE) ||
 				(endptr && *endptr != '\0')) {
-			print_error_arrow("Invalid boot order", buffer,
-				(intptr_t)endptr - (intptr_t)buffer);
+			off_t offset = (intptr_t)endptr - (intptr_t)buffer;
+			print_error_arrow(buffer, offset, "Invalid %s order",
+					  prefix);
 			free(data);
 			exit(8);
 		}
 		if (result > 0xffff) {
-			fprintf(stderr, "Invalid boot order entry value: %lX\n",
+			off_t offset = (intptr_t)buf - (intptr_t)buffer;
+			warnx("Invalid %s order entry value: %lX", prefix,
 				result);
-			print_error_arrow("Invalid boot order", buffer,
-				(intptr_t)buf - (intptr_t)buffer);
+			print_error_arrow(buffer, offset, "Invalid %s order",
+					  prefix);
 			free(data);
 			exit(8);
 		}
 
-		/* make sure this is an existing boot entry */
-		if (!is_current_boot_entry(result)) {
-			print_error_arrow("Invalid boot order entry value",
-					buffer,
-					(intptr_t)buf - (intptr_t)buffer);
-			fprintf(stderr,"Boot entry %04lX does not exist\n",
-				result);
+		/* make sure this is an existing entry */
+		if (!is_current_entry(result)) {
+			off_t offset = (intptr_t)buf - (intptr_t)buffer;
+			print_error_arrow(buffer, offset,
+					  "Invalid %s order entry value",
+					  prefix);
+			warnx("entry %04lX does not exist", result);
 			free(data);
 			exit(8);
 		}
@@ -724,7 +740,7 @@ parse_boot_order(char *buffer, uint16_t **order, size_t *length)
 }
 
 static int
-construct_boot_order(char *bootorder, int keep,
+construct_order(const char *name, char *order, int keep,
 			uint16_t **ret_data, size_t *ret_data_size)
 {
 	var_entry_t bo;
@@ -732,7 +748,7 @@ construct_boot_order(char *bootorder, int keep,
 	uint16_t *data = NULL;
 	size_t data_size = 0;
 
-	rc = parse_boot_order(bootorder, (uint16_t **)&data, &data_size);
+	rc = parse_order(name, order, (uint16_t **)&data, &data_size);
 	if (rc < 0 || data_size == 0) {
 		if (data) /* this can't actually happen, but covscan believes */
 			free(data);
@@ -745,7 +761,7 @@ construct_boot_order(char *bootorder, int keep,
 		return 0;
 	}
 
-	rc = efi_get_variable(EFI_GLOBAL_GUID, "BootOrder",
+	rc = efi_get_variable(EFI_GLOBAL_GUID, name,
 				&bo.data, &bo.data_size, &bo.attributes);
 	if (rc < 0) {
 		*ret_data = data;
@@ -793,31 +809,38 @@ construct_boot_order(char *bootorder, int keep,
 }
 
 static int
-set_boot_order(int keep_old_entries)
+set_order(const char *order_name, const char *prefix, int keep_old_entries)
 {
 	uint8_t *data = NULL;
 	size_t data_size = 0;
+	char *name;
 	int rc;
 
-	if (!opts.bootorder)
+	if (!opts.order)
 		return 0;
 
-	rc = construct_boot_order(opts.bootorder, keep_old_entries,
+	rc = construct_order(order_name, opts.order, keep_old_entries,
 				(uint16_t **)&data, &data_size);
 	if (rc < 0 || data_size == 0)
 		return rc;
 
-	rc = efi_set_variable(EFI_GLOBAL_GUID, "BootOrder", data, data_size,
+	rc = asprintf(&name, "%sOrder", prefix);
+	if (rc < 0)
+		goto err;
+
+	rc = efi_set_variable(EFI_GLOBAL_GUID, name, data, data_size,
 			      EFI_VARIABLE_NON_VOLATILE |
 			      EFI_VARIABLE_BOOTSERVICE_ACCESS |
 			      EFI_VARIABLE_RUNTIME_ACCESS,
 			      0644);
+	free(name);
+err:
 	free(data);
 	return rc;
 }
 
 static void
-show_boot_vars()
+show_vars(const char *prefix)
 {
 	list_t *pos;
 	var_entry_t *boot;
@@ -827,14 +850,14 @@ show_boot_vars()
 	unsigned char *optional_data = NULL;
 	size_t optional_data_len=0;
 
-	list_for_each(pos, &boot_entry_list) {
+	list_for_each(pos, &entry_list) {
 		boot = list_entry(pos, var_entry_t, list);
 		load_option = (efi_load_option *)boot->data;
 		description = efi_loadopt_desc(load_option, boot->data_size);
 		if (boot->name)
-			printf("%.8s", boot->name);
+			printf("%s", boot->name);
 		else
-			printf("Boot%04X", boot->num);
+			printf("%s%04X", prefix, boot->num);
 
 		printf("%c ", (efi_loadopt_attrs(load_option)
 			       & LOAD_OPTION_ACTIVE) ? '*' : ' ');
@@ -888,7 +911,7 @@ show_boot_vars()
 			rc = unparse_raw_text(text_path, text_path_len,
 					      optional_data, optional_data_len);
 			if (rc < 0)
-				err(23, "Could not parse device path");
+				err(24, "Could not parse device path");
 			printf("%s", text_path);
 			free(text_path);
 		}
@@ -897,78 +920,82 @@ show_boot_vars()
 }
 
 static void
-show_boot_order()
+show_order(const char *name)
 {
 	int rc;
-	var_entry_t *boot_order = NULL;
+	var_entry_t *order = NULL;
 	uint16_t *data;
 
-	rc = read_boot_order(&boot_order);
+	rc = read_order(name, &order);
 
 	if (rc < 0) {
-		if (errno == ENOENT)
-			printf("No BootOrder is set; firmware will attempt recovery\n");
-		else
-			perror("show_boot_order()");
+		if (errno == ENOENT) {
+			if (!strcmp(name, "BootOrder"))
+				printf("No BootOrder is set; firmware will attempt recovery\n");
+			else
+				printf("No %s is set\n", name);
+		} else
+			perror("show_order()");
 		return;
 	}
 
-	/* We've now got an array (in boot_order->data) of the
-	   boot order.  First add our entry, then copy the old array.
-	*/
-	data = (uint16_t *)boot_order->data;
-	if (boot_order->data_size) {
-		print_boot_order(data, boot_order->data_size / sizeof(uint16_t));
-		free(boot_order->data);
+	/* We've now got an array (in order->data) of the order.  First add
+	 * our entry, then copy the old array.
+	 */
+	data = (uint16_t *)order->data;
+	if (order->data_size) {
+		print_order(name, data,
+				 order->data_size / sizeof(uint16_t));
+		free(order->data);
 	}
-	free(boot_order);
+	free(order);
 }
 
 static int
-set_active_state()
+set_active_state(const char *prefix)
 {
 	list_t *pos;
-	var_entry_t *boot;
+	var_entry_t *entry;
 	efi_load_option *load_option;
 
-	list_for_each(pos, &boot_entry_list) {
-		boot = list_entry(pos, var_entry_t, list);
-		load_option = (efi_load_option *)boot->data;
-		if (boot->num == opts.bootnum) {
-			if (opts.active == 1) {
-				if (efi_loadopt_attrs(load_option)
+	list_for_each(pos, &entry_list) {
+		entry = list_entry(pos, var_entry_t, list);
+		load_option = (efi_load_option *)entry->data;
+		if (entry->num != opts.num)
+			continue;
+
+		if (opts.active == 1) {
+			if (efi_loadopt_attrs(load_option)
 						& LOAD_OPTION_ACTIVE) {
-					return 0;
-				} else {
-					efi_loadopt_attr_set(load_option,
+				return 0;
+			} else {
+				efi_loadopt_attr_set(load_option,
 							LOAD_OPTION_ACTIVE);
-					return efi_set_variable(boot->guid,
-							boot->name,
-							boot->data,
-							boot->data_size,
-							boot->attributes,
+				return efi_set_variable(entry->guid,
+							entry->name,
+							entry->data,
+							entry->data_size,
+							entry->attributes,
 							0644);
-				}
 			}
-			else if (opts.active == 0) {
-				if (!(efi_loadopt_attrs(load_option)
+		} else if (opts.active == 0) {
+			if (!(efi_loadopt_attrs(load_option)
 						& LOAD_OPTION_ACTIVE)) {
-					return 0;
-				} else {
-					efi_loadopt_attr_clear(load_option,
+				return 0;
+			} else {
+				efi_loadopt_attr_clear(load_option,
 							LOAD_OPTION_ACTIVE);
-					return efi_set_variable(boot->guid,
-							boot->name,
-							boot->data,
-							boot->data_size,
-							boot->attributes,
+				return efi_set_variable(entry->guid,
+							entry->name,
+							entry->data,
+							entry->data_size,
+							entry->attributes,
 							0644);
-				}
 			}
 		}
 	}
-	/* if we reach here then the bootnumber supplied was not found */
-	fprintf(stderr,"\nboot entry %x not found\n\n",opts.bootnum);
+	/* if we reach here then the number supplied was not found */
+	warnx("%s entry %x not found", prefix, opts.num);
 	errno = ENOENT;
 	return -1;
 }
@@ -993,7 +1020,7 @@ get_mirror(int which, int *below4g, int *above4g, int *mirrorstatus)
 	if (rc == 0) {
 		abm = (ADDRESS_RANGE_MIRROR_VARIABLE_DATA *)data;
 		if (!which && abm->mirror_version != MIRROR_VERSION) {
-			fprintf(stderr, "** Warning ** : unrecognised version for memory mirror i/f\n");
+			warnx("** Warning ** : unrecognised version for memory mirror i/f");
 			return 2;
 		}
 		*below4g = abm->mirror_memory_below_4gb;
@@ -1017,7 +1044,7 @@ set_mirror(int below4g, int above4g)
 		if (oldbelow4g == below4g && oldabove4g == above4g)
 			return 0;
 	} else {
-		fprintf(stderr, "** Warning ** : platform does not support memory mirror\n");
+		warnx("** Warning ** : platform does not support memory mirror");
 		return s;
 	}
 
@@ -1095,6 +1122,7 @@ usage()
 	printf("\t-C | --create-only	create new variable bootnum and do not add to bootorder\n");
 	printf("\t-D | --remove-dups	remove duplicate values from BootOrder\n");
 	printf("\t-d | --disk disk       (defaults to /dev/sda) containing loader\n");
+	printf("\t-r | --driver         Operate on Driver variables, not Boot Variables.\n");
 	printf("\t-e | --edd [1|3|-1]   force EDD 1.0 or 3.0 creation variables, or guess\n");
 	printf("\t-E | --device num      EDD 1.0 device number (defaults to 0x80)\n");
 	printf("\t-g | --gpt            force disk with invalid PMBR to be treated as GPT\n");
@@ -1123,6 +1151,7 @@ usage()
 	printf("\t-v | --verbose          print additional information\n");
 	printf("\t-V | --version          return version and exit\n");
 	printf("\t-w | --write-signature  write unique sig to MBR if needed\n");
+	printf("\t-y | --sysprep          Operate on SysPrep variables, not Boot Variables.\n");
 	printf("\t-@ | --append-binary-args file  append extra args from file (use \"-\" for stdin)\n");
 	printf("\t-h | --help             show help/usage\n");
 }
@@ -1131,7 +1160,7 @@ static void
 set_default_opts()
 {
 	memset(&opts, 0, sizeof(opts));
-	opts.bootnum         = -1;   /* auto-detect */
+	opts.num             = -1;   /* auto-detect */
 	opts.bootnext        = -1;   /* Don't set it */
 	opts.active          = -1;   /* Don't set it */
 	opts.timeout         = -1;   /* Don't set it */
@@ -1186,13 +1215,15 @@ parse_opts(int argc, char **argv)
 			{"version",                no_argument, 0, 'V'},
 			{"write-signature",        no_argument, 0, 'w'},
 			{"append-binary-args", required_argument, 0, '@'},
+			{"driver",                 no_argument, 0, 'r'},
+			{"sysprep",                no_argument, 0, 'y'},
 			{"help",                   no_argument, 0, 'h'},
 			{0, 0, 0, 0}
 		};
 
 		c = getopt_long (argc, argv,
 				 "AaBb:cCDd:e:E:gH:i:l:L:M:m:n:No:Op:qt:TuU:v::Vw"
-				 "@:h",
+				 "@:hry",
 				 long_options, &option_index);
 		if (c == -1)
 			break;
@@ -1209,7 +1240,7 @@ parse_opts(int argc, char **argv)
 			opts.active = 0;
 			break;
 		case 'B':
-			opts.delete_boot = 1;
+			opts.delete = 1;
 			break;
 		case 'b': {
 			char *endptr = NULL;
@@ -1217,16 +1248,16 @@ parse_opts(int argc, char **argv)
 			result = strtoul(optarg, &endptr, 16);
 			if ((result == ULONG_MAX && errno == ERANGE) ||
 					(endptr && *endptr != '\0')) {
-				print_error_arrow("Invalid bootnum value",
-					optarg,
-					(intptr_t)endptr - (intptr_t)optarg);
+				off_t offset = (intptr_t)endptr
+					       - (intptr_t)optarg;
+				print_error_arrow(optarg, offset,
+						  "Invalid bootnum value");
 				exit(28);
 			}
 			if (result > 0xffff)
-				errx(29, "Invalid bootnum value: %lX\n",
-				     result);
+				errx(29, "Invalid bootnum value: %lX", result);
 
-			opts.bootnum = result;
+			opts.num = result;
 			break;
 		}
 		case 'c':
@@ -1234,7 +1265,7 @@ parse_opts(int argc, char **argv)
 			break;
 		case 'C':
 			opts.create = 1;
-			opts.no_boot_order = 1;
+			opts.no_order = 1;
 			break;
 		case 'D':
 			opts.deduplicate = 1;
@@ -1247,16 +1278,16 @@ parse_opts(int argc, char **argv)
 			if (rc == 1)
 				opts.edd_version = num;
 			else
-				errx(30, "invalid numeric value %s\n", optarg);
+				errx(30, "invalid numeric value %s", optarg);
 			if (num != 0 && num != 1 && num != 3)
-				errx(31, "invalid EDD version %d\n", num);
+				errx(31, "invalid EDD version %d", num);
 			break;
 		case 'E':
 			rc = sscanf(optarg, "%x", &num);
 			if (rc == 1)
 				opts.edd10_devicenum = num;
 			else
-				errx(32, "invalid hex value %s\n", optarg);
+				errx(32, "invalid hex value %s", optarg);
 			break;
 		case 'g':
 			opts.forcegpt = 1;
@@ -1291,7 +1322,7 @@ parse_opts(int argc, char **argv)
 				opts.below4g = 0;
 				break;
 			default:
-				errx(33, "invalid boolean value %s\n", optarg);
+				errx(33, "invalid boolean value %s", optarg);
 			}
 			break;
 		case 'M':
@@ -1301,7 +1332,7 @@ parse_opts(int argc, char **argv)
 				/* percent to basis points */
 				opts.above4g = fnum * 100;
 			else
-				errx(34, "invalid numeric value %s\n", optarg);
+				errx(34, "invalid numeric value %s", optarg);
 			break;
 		case 'N':
 			opts.delete_bootnext = 1;
@@ -1312,32 +1343,36 @@ parse_opts(int argc, char **argv)
 			result = strtoul(optarg, &endptr, 16);
 			if ((result == ULONG_MAX && errno == ERANGE) ||
 					(endptr && *endptr != '\0')) {
-				print_error_arrow("Invalid BootNext value",
-					optarg,
-					(intptr_t)endptr - (intptr_t)optarg);
+				off_t offset = (intptr_t)endptr
+					       - (intptr_t)optarg;
+				print_error_arrow(optarg, offset,
+						  "Invalid BootNext value");
 				exit(35);
 			}
 			if (result > 0xffff)
-				errx(36, "Invalid BootNext value: %lX\n",
+				errx(36, "Invalid BootNext value: %lX",
 				     result);
 			opts.bootnext = result;
 			break;
 		}
 		case 'o':
-			opts.bootorder = optarg;
+			opts.order = optarg;
 			break;
 		case 'O':
-			opts.delete_bootorder = 1;
+			opts.delete_order = 1;
 			break;
 		case 'p':
 			rc = sscanf(optarg, "%u", &num);
 			if (rc == 1)
 				opts.part = num;
 			else
-				errx(37, "invalid numeric value %s\n", optarg);
+				errx(37, "invalid numeric value %s", optarg);
 			break;
 		case 'q':
 			opts.quiet = 1;
+			break;
+		case 'r':
+			opts.driver = 1;
 			break;
 		case 't':
 			rc = sscanf(optarg, "%u", &num);
@@ -1345,7 +1380,7 @@ parse_opts(int argc, char **argv)
 				opts.timeout = num;
 				opts.set_timeout = 1;
 			} else {
-				errx(38, "invalid numeric value %s\n", optarg);
+				errx(38, "invalid numeric value %s", optarg);
 			}
 			break;
 		case 'T':
@@ -1365,7 +1400,7 @@ parse_opts(int argc, char **argv)
 				if (rc == 1)
 					opts.verbose = num;
 				else
-					errx(39, "invalid numeric value %s\n",
+					errx(39, "invalid numeric value %s",
 					     optarg);
 			}
 			break;
@@ -1375,6 +1410,10 @@ parse_opts(int argc, char **argv)
 
 		case 'w':
 			opts.write_signature = 1;
+			break;
+
+		case 'y':
+			opts.sysprep = 1;
 			break;
 
 		default:
@@ -1394,10 +1433,21 @@ parse_opts(int argc, char **argv)
 int
 main(int argc, char **argv)
 {
-	char **boot_names = NULL;
-	var_entry_t *new_boot = NULL;
+	char **names = NULL;
+	var_entry_t *new_entry = NULL;
 	int num;
 	int ret = 0;
+	ebm_mode mode = boot;
+	char *prefices[] = {
+		"Boot",
+		"Driver",
+		"SysPrep",
+	};
+	char *order_name[] = {
+		"BootOrder",
+		"DriverOrder",
+		"SysPrepOrder"
+	};
 
 	putenv("LIBEFIBOOT_REPORT_GPT_ERRORS=1");
 	set_default_opts();
@@ -1407,69 +1457,91 @@ main(int argc, char **argv)
 		return 0;
 	}
 
+	if (opts.sysprep && opts.driver)
+		errx(25, "--sysprep and --driver may not be used together.");
+
+	if (opts.sysprep || opts.driver) {
+		if (opts.bootnext >= 0 || opts.delete_bootnext)
+			errx(26, "%s mode does not support BootNext options.",
+			     opts.sysprep ? "--sysprep": "--driver");
+
+		if (opts.timeout >= 0 || opts.delete_timeout)
+			errx(27, "%s mode does not support timeout options.",
+			     opts.sysprep ? "--sysprep": "--driver");
+
+		if (opts.sysprep)
+			mode = sysprep;
+
+		if (opts.driver)
+			mode = driver;
+	}
+
 	if (!efi_variables_supported())
 		errx(2, "EFI variables are not supported on this system.");
 
-	read_boot_var_names(&boot_names);
-	read_vars(boot_names, &boot_entry_list);
-	set_var_nums(&boot_entry_list);
 
-	if (opts.delete_boot) {
-		if (opts.bootnum == -1)
-			errx(3, "You must specify a boot entry to delete "
+	read_var_names(prefices[mode], &names);
+	read_vars(names, &entry_list);
+	set_var_nums(prefices[mode], &entry_list);
+
+	if (opts.delete) {
+		if (opts.num == -1)
+			errx(3, "You must specify an entry to delete "
 				"(see the -b option).");
 		else {
-			ret = delete_boot_var(opts.bootnum);
+			ret = delete_var(prefices[mode], opts.num);
 			if (ret < 0)
-				err(15, "Could not delete boot variable");
+				errx(15, "Could not delete variable");
 		}
 	}
 
 	if (opts.active >= 0) {
-		if (opts.bootnum == -1)
-			errx(4, "You must specify a boot entry to activate "
+		if (opts.num == -1)
+			errx(4, "You must specify an entry to activate "
 				"(see the -b option");
 		else {
-			ret = set_active_state();
+			ret = set_active_state(prefices[mode]);
 			if (ret < 0)
 				err(16, "Could not set active state");
 		}
 	}
 
 	if (opts.create) {
-		warn_duplicate_name(&boot_entry_list);
-		new_boot = make_boot_var(&boot_entry_list);
-		if (!new_boot)
-			err(5, "Could not prepare boot variable");
+		warn_duplicate_name(&entry_list);
+		new_entry = make_var(prefices[mode], &entry_list);
+		if (!new_entry)
+			err(5, "Could not prepare %s variable", prefices[mode]);
 
-		/* Put this boot var in the right BootOrder */
-		if (new_boot && !opts.no_boot_order)
-			ret=add_to_boot_order(new_boot->num);
+		/* Put this boot var in the right Order variable */
+		if (new_entry && !opts.no_order)
+			ret=add_to_order(order_name[mode], new_entry->num);
 		if (ret < 0)
-			err(6, "Could not add entry to BootOrder");
+			err(6, "Could not add entry to %s", order_name[mode]);
 	}
 
-	if (opts.delete_bootorder) {
-		ret = efi_del_variable(EFI_GLOBAL_GUID, "BootOrder");
-		if (ret < 0)
-			err(7, "Could not remove entry from BootOrder");
+	if (opts.delete_order) {
+		ret = efi_del_variable(EFI_GLOBAL_GUID, order_name[mode]);
+		if (ret < 0 && errno != ENOENT)
+			err(7, "Could not remove entry from %s",
+			    order_name[mode]);
 	}
 
-	if (opts.bootorder) {
-		ret = set_boot_order(opts.keep_old_entries);
+	if (opts.order) {
+		ret = set_order(order_name[mode], prefices[mode],
+				opts.keep_old_entries);
 		if (ret < 0)
-			err(8, "Could not set BootOrder");
+			err(8, "Could not set %s", order_name[mode]);
 	}
 
 	if (opts.deduplicate) {
-		ret = remove_dupes_from_boot_order();
+		ret = remove_dupes_from_order(order_name[mode]);
 		if (ret)
-			err(9, "Could not set BootOrder");
+			err(9, "Could not set %s", order_name[mode]);
 	}
 
 	if (opts.delete_bootnext) {
-		if (!is_current_boot_entry(opts.delete_bootnext))
-			errx(17, "Boot entry %04X does not exist\n",
+		if (!is_current_entry(opts.delete_bootnext))
+			errx(17, "Boot entry %04X does not exist",
 				opts.delete_bootnext);
 
 		ret = efi_del_variable(EFI_GLOBAL_GUID, "BootNext");
@@ -1484,15 +1556,15 @@ main(int argc, char **argv)
 	}
 
 	if (opts.bootnext >= 0) {
-		if (!is_current_boot_entry(opts.bootnext & 0xFFFF))
+		if (!is_current_entry(opts.bootnext & 0xFFFF))
 			errx(12, "Boot entry %X does not exist", opts.bootnext);
-		ret = set_boot_u16("BootNext", opts.bootnext & 0xFFFF);
+		ret = set_u16("BootNext", opts.bootnext & 0xFFFF);
 		if (ret < 0)
 			err(13, "Could not set BootNext");
 	}
 
 	if (opts.set_timeout) {
-		ret = set_boot_u16("Timeout", opts.timeout);
+		ret = set_u16("Timeout", opts.timeout);
 		if (ret < 0)
 			err(14, "Could not set Timeout");
 	}
@@ -1502,24 +1574,30 @@ main(int argc, char **argv)
 	}
 
 	if (!opts.quiet && ret == 0) {
-		num = read_boot_u16("BootNext");
-		if (num >= 0) {
-			printf("BootNext: %04X\n", num);
+		switch (mode) {
+		case boot:
+			num = read_u16("BootNext");
+			if (num >= 0)
+				printf("BootNext: %04X\n", num);
+			num = read_u16("BootCurrent");
+			if (num >= 0)
+				printf("BootCurrent: %04X\n", num);
+			num = read_u16("Timeout");
+			if (num >= 0)
+				printf("Timeout: %u seconds\n", num);
+			show_order(order_name[mode]);
+			show_vars(prefices[mode]);
+			show_mirror();
+			break;
+		case driver:
+		case sysprep:
+			show_order(order_name[mode]);
+			show_vars(prefices[mode]);
+			break;
 		}
-		num = read_boot_u16("BootCurrent");
-		if (num >= 0) {
-			printf("BootCurrent: %04X\n", num);
-		}
-		num = read_boot_u16("Timeout");
-		if (num >= 0) {
-			printf("Timeout: %u seconds\n", num);
-		}
-		show_boot_order();
-		show_boot_vars();
-		show_mirror();
 	}
-	free_vars(&boot_entry_list);
-	free_array(boot_names);
+	free_vars(&entry_list);
+	free_array(names);
 	if (ret)
 		return 1;
 	return 0;
