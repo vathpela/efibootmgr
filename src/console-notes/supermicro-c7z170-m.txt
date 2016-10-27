@@ -1,0 +1,113 @@
+BIOS Information
+        Vendor: American Megatrends Inc.
+        Version: 1.1a
+        Release Date: 07/15/2016
+        Address: 0xF0000
+        Runtime Size: 64 kB
+        ROM Size: 16384 kB
+System Information
+        Manufacturer: Supermicro
+        Product Name: C7Z170-M
+        Version: 0123456789
+        Serial Number: 0123456789
+        UUID: 00000000-0000-0000-0000-002590B593DC
+Base Board Information
+        Manufacturer: Supermicro
+        Product Name: C7Z170-M
+        Version: 0123456789
+        Serial Number: 0123456789
+
+eficonman:
+Available console input devices:
+	PciRoot(0x0)/Pci(0x14,0x0)/USB(1,0)/USB(0,0)
+	PciRoot(0x0)/Pci(0x14,0x0)/USB(1,0)/USB(1,0)
+Available console ouput devices:
+	PciRoot(0x0)/Pci(0x2,0x0)/AcpiAdr(0x80013332)
+Available error output devices:
+	PciRoot(0x0)/Pci(0x2,0x0)/AcpiAdr(0x80013332)
+Configured console input devices:
+	PciRoot(0x0)/Pci(0x14,0x0)/USB(1,0)/USB(0,0)
+	PciRoot(0x0)/Pci(0x14,0x0)/USB(1,0)/USB(1,0)
+Configured console ouptut devices:
+	PciRoot(0x0)/Pci(0x2,0x0)/AcpiAdr(0x80013332)
+Configured error output devices:
+	PciRoot(0x0)/Pci(0x2,0x0)/AcpiAdr(0x80013332)
+
+ACPI:
+    Scope (_SB)
+    {
+        Device (PCI0)
+        {
+	...
+            Scope (\_SB.PCI0)
+            {
+                Device (GFX0)
+                {
+                    Name (_ADR, 0x00020000)  // _ADR: Address
+                }
+                Device (B0D4)
+                {
+                    Method (_DSM, 4, Serialized)  // _DSM: Device-Specific Method
+                    {
+                        If (PCIC (Arg0))
+                        {
+                            Return (PCID (Arg0, Arg1, Arg2, Arg3))
+                        }
+                    }
+                    Name (_ADR, 0x00040000)  // _ADR: Address
+                }
+            }
+            Device (PEG0)
+            {
+                Name (_ADR, 0x00010000)  // _ADR: Address
+                Method (_PRT, 0, NotSerialized)  // _PRT: PCI Routing Table
+                {
+                    If (PICM)
+                    {
+                        Return (AR01) /* \_SB_.AR01 */
+                    }
+                    Return (PR01) /* \_SB_.PR01 */
+                }
+                Device (PEGP)
+                {
+                    Name (_ADR, Zero)  // _ADR: Address
+                }
+            }
+            Device (PEG1)
+            {
+                Name (_ADR, 0x00010001)  // _ADR: Address
+                Method (_PRT, 0, NotSerialized)  // _PRT: PCI Routing Table
+                {
+                    If (PICM)
+                    {
+                        Return (AR02) /* \_SB_.AR02 */
+                    }
+                    Return (PR02) /* \_SB_.PR02 */
+                }
+                Device (PEGP)
+                {
+                    Name (_ADR, Zero)  // _ADR: Address
+                }
+            }
+            Device (PEG2)
+            {
+                Name (_ADR, 0x00010002)  // _ADR: Address
+                Method (_PRT, 0, NotSerialized)  // _PRT: PCI Routing Table
+                {
+                    If (PICM)
+                    {
+                        Return (AR03) /* \_SB_.AR03 */
+                    }
+                    Return (PR03) /* \_SB_.PR03 */
+                }
+                Device (PEGP)
+                {
+                    Name (_ADR, Zero)  // _ADR: Address
+                }
+            }
+	    ...
+	}
+	...
+    }
+
+

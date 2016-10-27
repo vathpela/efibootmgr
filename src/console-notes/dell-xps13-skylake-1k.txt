@@ -1,0 +1,139 @@
+BIOS Information
+        Vendor: Dell Inc.
+        Version: 1.4.4
+        Release Date: 06/14/2016
+        Address: 0xF0000
+        Runtime Size: 64 kB
+        ROM Size: 16384 kB
+System Information
+        Manufacturer: Dell Inc.
+        Product Name: XPS 13 9350
+        Version: Not Specified
+        Serial Number: 1CCMN72
+        UUID: 4C4C4544-0043-4310-804D-B1C04F4E3732
+Base Board Information
+        Manufacturer: Dell Inc.
+        Product Name: 07TYC2
+        Version: A01
+        Serial Number: /1CCMN72/CN1296363H0061/
+
+eficonman:
+  Available console input devices:
+  	PciRoot(0x0)/Pci(0x1f,0x0)/Acpi(0x30341d0,0x0)
+  Available console ouput devices:
+  	PciRoot(0x0)/Pci(0x2,0x0)/AcpiAdr(0x80011400)
+  Available error output devices:
+  	PciRoot(0x0)/Pci(0x2,0x0)/AcpiAdr(0x80011400)
+  Configured console input devices:
+  	PciRoot(0x0)/Pci(0x1f,0x0)/Acpi(0x30341d0,0x0)
+  Configured console ouptut devices:
+  	PciRoot(0x0)/Pci(0x2,0x0)/AcpiAdr(0x80011400)
+  Configured error output devices:
+  	PciRoot(0x0)/Pci(0x2,0x0)/AcpiAdr(0x80011400)
+
+ACPI:
+    Scope (_SB.PCI0.GFX0)
+    {
+        Method (_DOD, 0, NotSerialized)  // _DOD: Display Output Devices
+        {
+            If (ECGB () == One)
+            {
+                Return (Package (0x08)
+                {
+                    0x0100,
+                    0x0400,
+                    0x0302,
+                    0x0303,
+                    0x0300,
+                    0x0301,
+                    0x0304,
+                    0x0305
+                })
+            }
+            Else
+            {
+                Return (Package (0x08)
+                {
+                    0x0100,
+                    0x0400,
+                    0x0302,
+                    0x0303,
+                    0x0300,
+                    0x0301,
+                    0x0304,
+                    0x0305
+                })
+            }
+        }
+        Device (CRT)
+        {
+            Method (_ADR, 0, NotSerialized)  // _ADR: Address
+            {
+                Return (0x0100)
+            }
+ 	    ...
+        }
+        Device (LCD)
+        {
+            Method (_ADR, 0, NotSerialized)  // _ADR: Address
+            {
+                If (ECGB () == One)
+                {
+                    Return (0x0400)
+                }
+                Else
+                {
+                    Return (0x0400)
+                }
+            }
+	    ...
+	}
+        Device (DVI)
+        {
+            Method (_ADR, 0, NotSerialized)  // _ADR: Address
+            {
+                Return (0x0302)
+            }
+	    ...
+	}
+        Device (DVI)
+        {
+            Method (_ADR, 0, NotSerialized)  // _ADR: Address
+            {
+                Return (0x0302)
+            }
+	    ...
+	}
+        Device (DVI3)
+        {
+            Method (_ADR, 0, NotSerialized)  // _ADR: Address
+            {
+                Return (0x0304)
+            }
+	    ...
+	}
+        Device (DP)
+        {
+            Method (_ADR, 0, NotSerialized)  // _ADR: Address
+            {
+                Return (0x0300)
+            }
+	    ...
+	}
+        Device (DP2)
+        {
+            Method (_ADR, 0, NotSerialized)  // _ADR: Address
+            {
+                Return (0x0301)
+            }
+	    ...
+	}
+        Device (DP3)
+        {
+            Method (_ADR, 0, NotSerialized)  // _ADR: Address
+            {
+                Return (0x0305)
+            }
+	    ...
+	}
+

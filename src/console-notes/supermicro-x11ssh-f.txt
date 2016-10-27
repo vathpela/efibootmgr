@@ -1,0 +1,59 @@
+BIOS Information
+        Vendor: American Megatrends Inc.
+        Version: 1.0b
+        Release Date: 05/05/2016
+        Address: 0xF0000
+        Runtime Size: 64 kB
+        ROM Size: 16384 kB
+System Information
+        Manufacturer: Supermicro
+        Product Name: Super Server
+        Version: 0123456789
+        Serial Number: 0123456789
+        UUID: 00000000-0000-0000-0000-0CC47A7D8154
+Base Board Information
+        Manufacturer: Supermicro
+        Product Name: X11SSH-F
+        Version: 1.01
+        Serial Number: ZM15BS021138
+
+eficonman:
+Available console input devices:
+	PciRoot(0x0)/Pci(0x14,0x0)/USB(4,0)
+	PciRoot(0x0)/Pci(0x14,0x0)/USB(13,0)/USB(0,0)
+	PciRoot(0x0)/Pci(0x1f,0x0)/Serial(0x1)/Uart(115200,8,N,1)/UartFlowControl(Hardware)/VenVt100Plus()
+Available console ouput devices:
+	PciRoot(0x0)/Pci(0x1c,0x6)/Pci(0x0,0x0)/Pci(0x0,0x0)/AcpiAdr(0x80010100)
+	PciRoot(0x0)/Pci(0x1f,0x0)/Serial(0x1)/Uart(115200,8,N,1)/UartFlowControl(Hardware)/VenVt100Plus()
+Available error output devices:
+	PciRoot(0x0)/Pci(0x1c,0x6)/Pci(0x0,0x0)/Pci(0x0,0x0)/AcpiAdr(0x80010100)
+	PciRoot(0x0)/Pci(0x1f,0x0)/Serial(0x1)/Uart(115200,8,N,1)/UartFlowControl(Hardware)/VenVt100Plus()
+Configured console input devices:
+	PciRoot(0x0)/Pci(0x14,0x0)/USB(4,0)
+	PciRoot(0x0)/Pci(0x14,0x0)/USB(13,0)/USB(0,0)
+	PciRoot(0x0)/Pci(0x1f,0x0)/Serial(0x1)/Uart(115200,8,N,1)/UartFlowControl(Hardware)/VenVt100Plus()
+Configured console ouptut devices:
+	PciRoot(0x0)/Pci(0x1c,0x6)/Pci(0x0,0x0)/Pci(0x0,0x0)/AcpiAdr(0x80010100)
+	PciRoot(0x0)/Pci(0x1f,0x0)/Serial(0x1)/Uart(115200,8,N,1)/UartFlowControl(Hardware)/VenVt100Plus()
+Configured error output devices:
+	PciRoot(0x0)/Pci(0x1c,0x6)/Pci(0x0,0x0)/Pci(0x0,0x0)/AcpiAdr(0x80010100)
+	PciRoot(0x0)/Pci(0x1f,0x0)/Serial(0x1)/Uart(115200,8,N,1)/UartFlowControl(Hardware)/VenVt100Plus()
+
+ACPI:
+    Scope (_SB)
+    {
+        Device (PCI0)
+        {
+            Scope (\_SB.PCI0)
+            {
+                Device (GFX0)
+                {
+                    Name (_ADR, 0x00020000)  // _ADR: Address
+                }
+		...
+	    }
+	    ...
+	}
+	...
+    }
+
