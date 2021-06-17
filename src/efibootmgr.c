@@ -368,11 +368,12 @@ read_order(const char *name, var_entry_t **order)
 
 	rc = efi_get_variable(EFI_GLOBAL_GUID, name,
 				&bo->data, &bo->data_size, &bo->attributes);
-	if (rc < 0 && new != NULL) {
+	if (rc < 0) {
 		efi_error("efi_get_variable failed");
-		free(new);
-		*order = NULL;
 		bo = NULL;
+		if (new != NULL)
+			free(new);
+		*order = NULL;
 	}
 
 	if (bo) {
